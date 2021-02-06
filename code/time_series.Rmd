@@ -12,5 +12,127 @@ require(tidyverse)
 require(tsibble)
 require(feasts)
 require(fable)
+require(here)
 ```
 
+Read in energy data and convert to a tsibble
+
+```{r}
+energy <- read_csv(here("data", "energy.csv")) 
+
+energy_ts <- energy %>% 
+  mutate(date = tsibble::yearmonth(month)) %>% 
+  as_tsibble(key = NULL, index = date) # get it into tsibble format
+
+```
+## Exploration
+
+Timeseries plot
+
+```{r}
+ggplot(data = energy_ts, aes(x = date, y = res_total)) +
+  geom_line() + 
+  labs(y = "Residential energy consumption \n (Trillion BTU)")
+```
+
+Season plot
+
+```{r}
+energy_ts %>% 
+  gg_season(y = res_total) + 
+  theme_minimal() +
+  labs(x = "month",
+       y = "residential energy consumption (trillion BTU)")
+```
+Subseries plot
+
+```{r}
+energy_ts %>% 
+  gg_subseries(res_total)
+```
+
+Takeaway is similar: there is clear seasonality (higher values in winter months), with an increasingly evident second peak in June/July/August. This reinforces our takeaways from the raw data and seasonplots.
+
+## Decomposition (by STL)
+
+See Rob Hyndman’s section on STL decomposition to learn how it compares to classical decomposition we did last week: “STL is a versatile and robust method for decomposing time series. STL is an acronym for “Seasonal and Trend decomposition using Loess”, while Loess is a method for estimating nonlinear relationships."
+
+Notice that it allows seasonality to vary over time (a major difference from classical decomposition, and important here since we do see changes in seasonality).
+
+```{r}
+# find STL decomposition
+dcmp <- energy_ts %>% 
+  model(STL(res_total ~ season()))
+
+# view the components
+components(dcmp)
+
+# visualize the decomposed components
+components(dcmp) %>% autoplot() +
+  theme_minimal()
+```
+Autocorrelation function (ACF)
+
+```{r}
+energy_ts %>% 
+  ACF(res_total) %>% 
+  autoplot()
+
+# We use the ACF to explore autocorrelation (here, we would expect seasonality to be clear from the ACF):
+
+# And yep, we see that observations separated by 12 months are the most highly correlated, reflecting strong seasonality we see in all of our other exploratory visualizations.
+
+```
+## Forecasting by Holt-Winters exponential smoothing
+
+Note: here we use ETS, which technically uses different optimization than Holt-Winters exponential smoothing, but is otherwise the same (From Rob Hyndman: “The model is equivalent to the one you are fitting with HoltWinters(), although the parameter estimation in ETS() uses MLE.”)
+
+```{r}
+# create the model (note "M" standed for multiplicative)
+energy_fit <- energy_ts %>% 
+  model(
+    ets = ETS(res_total ~ season("M"))
+  )
+
+# forecast using the model 10 years into the future:
+energy_forecast <- energy_fit %>% 
+  forecast(h = "10 years")
+
+# plot just the forecasted values (with 90 & 90% CI's)
+energy_forecast %>% 
+  autoplot()
+```
+
+```{r}
+# or plot it added to the original data
+energy_forecast %>% 
+  autoplot(energy_ts)
+```
+
+## Assessing residuals
+
+First, use broom::augment() to get the predicted values & residuals:
+
+```{r}
+# Append the predicted values (and residuals) to original energy data
+energy_predicted <- broom::augment(energy_fit)
+
+# use View(energy_predicted) to see the resulting df
+```
+
+```{r}
+
+# make sure they look like pretty good predictions! (they do)
+ggplot(data = energy_predicted) +
+  geom_line(aes(x = date, y = res_total)) +
+  geom_line(aes(x = date, y = .fitted), color = "red")
+```
+
+Now look at residuals
+
+```{r}
+ggplot(data = energy_predicted, aes(x = .resid)) +
+  geom_histogram()
+```
+
+## See example html for other estimation methods of time series
