@@ -1,0 +1,16 @@
+---
+title: "Time series"
+author: "Julianna Renzi"
+date: "2/6/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+require(tidyverse)
+require(tsibble)
+require(feasts)
+require(fable)
+```
+
